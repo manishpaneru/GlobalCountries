@@ -1,220 +1,156 @@
-#!/usr/bin/env python
-# coding: utf-8
+# This is my first attempt at cleaning a dataset of global countries! 
+# I found it on Kaggle and thought it would be a fun way to practice my Pandas skills.
+# Let's see what we can do!
 
-# In[85]:
+import pandas as pd    # This is the main library I'll use for data cleaning
+import numpy as np     # NumPy for some math stuff if I need it
+from scipy.stats.mstats import winsorize  # This helps me deal with extreme values, I heard it's important!
+from sklearn.preprocessing import StandardScaler, MinMaxScaler  # These are for scaling data, will make it nicer for analysis later
 
+# Let's read in the CSV file
+df = pd.read_csv('world-data-2023.csv')
 
-# This is a data-cleaning project. We have a CSV file with the data of countries and their various data. We are gonna clean them now and use it to analysis.
-# we are gonna clean it now and we will perform an explorative analysis in this data
-# The objective of this data analysis project is to find the relationship between education, and labor force participation, so this data cleaning focus on that.
+# First, let's take a quick look at the first few rows to get a feel for the data
+print("First 5 rows:")
+print(df.head().to_markdown(index=False, numalign="left", stralign="left"))
 
+# Hmm, some columns have weird names with newlines. I should fix that later.
 
-# In[86]:
+# A summary of each column: means, counts, etc.
+print("\nSummary Statistics:")
+print(df.describe().to_markdown(numalign="left", stralign="left"))
 
+# What types of data do we have in each column? (Numbers, text, etc.)
+print("\nColumn Info:")
+print(df.info())
 
-# First let's import the libraries and dependecies
-import pandas as pd
-import numpy as np
-
-
-# In[87]:
-
-
-df = pd.read_csv("world-data-2023.csv")
-# let's have a look at the data first
-df
-
-
-# In[88]:
-
-
-# let's have a look at column names in the dataframe
+# All the column names so I can refer to them easily
+print("\nColumn Names:")
 print(df.columns)
 
 
-# In[89]:
+# Uh oh, some countries are missing data for Birth Rate, Infant mortality, and Life expectancy!
+# Let's just remove those rows for now.
+df.dropna(subset=['Birth Rate', 'Infant mortality', 'Life expectancy'], inplace=True)
 
+# Let's get rid of rows with any missing values
+df.dropna(inplace=True)
 
-# let's have a look at the data types  in the data
-print(df.dtypes)
+# Oops, I just dropped ALL the rows because some columns had a ton of missing values. 
+# This isn't the best, but for now, I'll focus on the columns I actually want to use.
 
+# These columns seem unnecessary, so let's drop them
+df.drop(columns=['Abbreviation', 'Latitude', 'Longitude'], inplace=True)
 
-# In[90]:
+# There are '%' signs messing up some of the numbers, gotta get rid of those!
+for column in ['Density\n(P/Km2)', 'Agricultural Land( %)', 'Forested Area (%)', 'CPI Change (%)', 'Gross primary education enrollment (%)', 'Gross tertiary education enrollment (%)', 'Population: Labor force participation (%)', 'Tax revenue (%)', 'Total tax rate', 'Unemployment rate']:
+    df[column] = df[column].astype(str).str.replace('%', '', regex=False)  # This will take care of the '%' sign
+    df[column] = pd.to_numeric(df[column], errors='coerce')   # Now let's make these numbers
 
+print("Data after removing '%' sign:")
+print(df.head().to_markdown(index=False, numalign="left", stralign="left"))
 
-# Thats a lots of columns. Let's only use column that are relevant to our projects objectives. soo we aren't gonna need much columns
-# First let's do something absolutely basic data cleaning steps, first let's clear white space from the data.
-df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
-df
+# Some columns have '<span class="math-inline">' and commas, which also make them not numeric
+for column in \['Land Area\(Km2\)', 'Armed Forces size', 'Co2\-Emissions', 'CPI', 'Gasoline Price', 'GDP', 'Minimum wage', 'Out of pocket health expenditure', 'Population', 'Urban\_population'\]\:
+df\[column\] \= df\[column\]\.astype\(str\)\.str\.replace\(r'\[</span>,]', '', regex=True).str.replace('nan', '0', regex=False)  # Replace '<span class="math-inline">', commas, and 'nan'
+df\[column\] \= pd\.to\_numeric\(df\[column\], errors\='coerce'\)    \# Convert to numbers
+print\("Data after removing '</span>' and ',' sign:")
+print(df.head().to_markdown(index=False, numalign="left", stralign="left"))
 
+# Oh no, there are 'N/A' values in the 'Minimum wage' column... let's replace them with NaN
+df['Minimum wage'] = df['Minimum wage'].replace('N/A', np.nan) 
 
-# In[91]:
+# For missing 'Minimum wage' values, I'll use the median for each currency to fill them in
+df['Minimum wage'] = df.groupby('Currency-Code')['Minimum wage'].transform(lambda x: x.fillna(x.median()))
 
+# Some commas are messing up 'Out of pocket health expenditure' values, time to fix those!
+df['Out of pocket health expenditure'] = df['Out of pocket health expenditure'].astype(str).str.replace(',', '.', regex=False)  # Replace ',' with '.'
+df['Out of pocket health expenditure'] = pd.to_numeric(df['Out of pocket health expenditure'], errors='coerce') # Make those numbers!
 
-# Dang it! it deleted 50% of the data
-# let's clean the rows name and data types.
-# Let's rename the population density table as it has some formatting error while importing the data from excel
+# Same trick for filling in missing values, using the mean for each currency
+df['Out of pocket health expenditure'] = df.groupby('Currency-Code')['Out of pocket health expenditure'].transform(lambda x: x.fillna(x.mean()))
 
+# Making a new column to group countries by income level (low, middle, high) based on GDP per capita
+df['Income Level'] = pd.qcut(df['GDP per capita'], q=4, labels=['Low', 'Lower-Middle', 'Upper-Middle', 'High'])
 
-# In[92]:
+# Filling in any remaining blanks with "Missing" - gotta be tidy!
+df['Abbreviation'] = df['Abbreviation'].fillna('Missing')
+df['Capital/Major City'] = df['Capital/Major City'].fillna('Missing')
+df['Currency-Code'] = df['Currency-Code'].fillna('Missing')
+df['Official language'] = df['Official language'].fillna('Missing')
 
+# Some countries have extra stuff after the name, let's clean those up
+df['Country'] = df['Country'].astype(str).str.split(',').str[0]  
 
-df.rename(
-    columns={"Density\n(P/Km2)": "density"}, inplace=True
-)  # This code supposedly will change the columns name from something crazy to density
-df  # let's check the dataframe to see if it worked
+# Same issue with city names, sometimes extra info after "and"
+df['Largest city'] = df['Largest city'].astype(str).str.split(' and').str[0] 
 
+# These columns should be categories, not just regular text
+df['Calling Code'] = df['Calling Code'].astype('category')  
+df['Currency-Code'] = df['Currency-Code'].astype('category')
+df['Official language'] = df['Official language'].astype('category')
 
-# In[93]:
+# Missing Density? Let's just use the median for now...
+median_density = df['Density\n(P/Km2)'].median()
+df['Density\n(P/Km2)'].fillna(median_density, inplace=True)
 
+# Same idea for missing Agricultural Land data
+mean_agricultural_land = df['Agricultural Land( %)'].mean()
+df['Agricultural Land( %)'].fillna(mean_agricultural_land, inplace=True)
 
-# AS we have no use of the abbreviation of the countries name in the column as does Agricultural land , land Area(%) , Land Area(Km2), Also Birth rate
-# And calling code of the country
-df.drop(
-    columns=[
-        "Abbreviation",
-        "Agricultural Land( %)",
-        "Land Area(Km2)",
-        "Armed Forces size",
-        "Birth Rate",
-        "Calling Code",
-    ],
-    inplace=True,
-)
-# This code should delete all the useless columns
-df  # let's check the data
+# Let's calculate GDP per capita by dividing GDP by Population
+df['GDP per capita'] = df['GDP'] / df['Population']
 
+# Drop rows with missing GDP per capita values (if any)
+df.dropna(subset=['GDP per capita'], inplace=True)
 
-# In[94]:
+# Trying out this fancy "Winsorization" thing to deal with extreme Co2 emissions
+df['Co2-Emissions'] = winsorize(df['Co2-Emissions'], limits=[0, 0.05]) 
 
+# Scaling CPI to be between 0 and 1
+scaler = MinMaxScaler()
+df['CPI'] = scaler.fit_transform(df[['CPI']])  
 
-# We also don't have any use of latitude and longitude
-df.drop(
-    columns=["Latitude", "Longitude"], inplace=True
-)  # This should delete the unnecassary columns
-df  # let's check it out
+print("Cleaned data:")
+print(df.head().to_markdown(index=False, numalign="left", stralign="left"))
 
+# Creating a binary flag to indicate high-income countries
+df['High_Income'] = df['Income Level'].apply(lambda x: 1 if x == 'High' else 0)
 
-# In[95]:
+# Standardizing Birth Rate
+scaler = StandardScaler()
+df['Birth Rate'] = scaler.fit_transform(df[['Birth Rate']]) 
 
+# Quick check of how the 'GDP per capita' is distributed (skewed or normal-ish?)
+print("\nGDP per capita Stats:")
+print(f"Skewness of GDP per capita: {df['GDP per capita'].skew()}") 
+print(f"Kurtosis of GDP per capita: {df['GDP per capita'].kurtosis()}") 
 
-# There is some issue of Co2 cmission , we dont know the unit of Co2 emmision, let's first see a country's Co2 emmissions and then google it
-print(df.loc[df["Country"] == "United Kingdom", "Co2-Emissions"])
-# Let's see UK's co2 emissions and compare it to googles answer
-# Seems like the value is in 100mt to 1 , so let's change that
+# This looks pretty skewed, so I'll have to be careful with analysis!
+print("\nThe GDP per capita distribution is highly right-skewed and has heavy tails. This suggests there are some outlier countries with really high GDP per capita, and most countries are clumped together with lower values.")
 
 
-# In[96]:
 
+# I've heard outliers can mess up analysis, so let's try to remove them 
+columns_to_check = ['Density\n(P/Km2)', 'Agricultural Land( %)', 'Land Area(Km2)', 'Armed Forces size', 'Co2-Emissions', 'CPI', 'Forested Area (%)', 'Gasoline Price', 'Gross primary education enrollment (%)', 'Gross tertiary education enrollment (%)', 'Infant mortality', 'Life expectancy', 'Maternal mortality ratio', 'Minimum wage', 'Out of
 
-# This code should rename the Co2-Emissions, to emissions_100mt
-df.rename(
-    columns={"Co2-Emissions": "Emission_100mt"}, inplace=True
-)  # This shall rename it
-df  # let's check it out
+# Iterate through each column
+for col in columns_to_check:
+    # Calculate Q1, Q3, and IQR
+    Q1 = df[col].quantile(0.25)
+    Q3 = df[col].quantile(0.75)
+    IQR = Q3 - Q1
 
+    # Define bounds
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
 
-# In[102]:
+    # Identify outliers
+    outliers = df[(df[col] < lower_bound) | (df[col] > upper_bound)]
 
+    # Replace outliers with median
+    median_value = df[col].median()
+    df.loc[outliers.index, col] = median_value
 
-# Now that we are done with that , we need to delete fertility rate , Forested Area , out of pocket health expenditure , physician per thousand
-# infant mortality , Maternal Mortality Ratio , official languages , Currency-Code. There are many columns so first create a list of the columns
-# Corrected list of column names to be removed
-columns = [
-    "Fertility Rate",
-    "Forested Area (%)",
-    "Out of pocket health expenditure",
-    "Physicians per thousand",
-    "Infant mortality",
-    "Maternal mortality ratio",
-    "Official language",
-    "Currency-Code",
-]
-
-# Remove the specified columns from the DataFrame
-df.drop(columns=columns, inplace=True)
-
-# Display the DataFrame after removing the specified columns
-print(df)
-
-
-# In[104]:
-
-
-# Now that we have all the columns that we need let's change the data types and format them properly
-# Let's first remove '$' from the entire data frame also commas from the dataframe  as they will be an obstacle when we convert the data type to int
-df = df.replace(
-    {"\$": ""}, regex=True
-)  # This should remove all the '$' signs from the data frame.
-df = df.replace(
-    {",": ""}, regex=True
-)  # This should remove all the ',' from the data frame
-# let's check them out
-df
-
-
-# In[105]:
-
-
-# Now that we are done with data cleaning, Let's create new dataframes that we can use for visualizations.
-
-
-# In[106]:
-
-
-# Let's create a data frame with data of the countries with just data of countries with GDP more than 1 trillion.
-developed_nations = df[df["GDP"].astype(float) > 10**12]
-developed_nations
-
-
-# In[107]:
-
-
-# let's reset the table index.
-developed_nations.reset_index(
-    drop=True, inplace=True
-)  # This should reset the index in the developed nation data frame
-developed_nations  # looks like it worked
-
-
-# In[111]:
-
-
-# Now that that's sorted out let's Sort the data based on GDP
-developed_nations = developed_nations.sort_values(
-    by="GDP", ascending=True
-)  # This should sort the data
-developed_nations  # let's check if hte code worked
-
-
-# In[114]:
-
-
-# Now that'e , we can use it later for data visualization and analysis, let's see the original dataframe and then know what to do with the data
-df
-# let's create a new table with countries with top 10 largest population and then sort it according to populations
-# First let's srot our entire dataframe according to the population
-df_sorted = df.sort_values(by="Population", ascending=False)
-# Now let's creaet a new data frame with population of top 10 countries
-population = df_sorted.head(
-    10
-)  # This code should find the top 10 from the sorted dataframe
-population = population.sort_values(
-    by="Population", ascending=False
-)  # Now it sorts the new created table according to population
-population.reset_index(
-    drop=True, inplace=True
-)  # This should reset the index of the table
-population
-
-
-# In[115]:
-
-
-# now that we have 3 tables we can continue on analysis part
-
-
-# In[ ]:
-
-
-# I ma gonna upload it to GitHub and , So this is the data cleaning part and I can move on to analysis in python part.
+    # Print results
+    print(f"Column '{col}': {len(outliers)} outliers replaced with median {median_value}")
